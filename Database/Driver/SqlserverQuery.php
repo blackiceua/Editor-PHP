@@ -130,6 +130,86 @@ class SqlserverQuery extends Query {
 		return new SqlserverResult( $resource, $this->_stmt );
 	}
 
+  /**
+   * Protect field names
+   * @param string $identifier String to be protected
+   * @return string
+   * @internal
+   */
+  protected function _protect_identifiers($identifier, $field_build = false )
+  {
+    $idl = $this->_identifier_limiter;
+
+    // No escaping character
+    if ( ! $idl ) {
+      return $identifier;
+    }
+
+    $left = $idl[0];
+    $right = $idl[1];
+
+    // Dealing with a function or other expression? Just return immediately
+    if (strpos($identifier, '(') !== FALSE || strpos($identifier, '*') !== FALSE || (strpos($identifier, ' ') !== FALSE && !$field_build))
+    {
+      return $identifier;
+    }
+
+    // Going to be operating on the spaces in strings, to simplify the white-space
+    $identifier = preg_replace('/[\t ]+/', ' ', $identifier);
+
+    // Find if our identifier has an alias, so we don't escape that
+    if ( strpos($identifier, ' as ') !== false ) {
+      $alias = strstr($identifier, ' as ');
+      $identifier = substr($identifier, 0, - strlen($alias));
+    }
+    else {
+      $alias = '';
+    }
+
+    $a = explode('.', $identifier);
+    return $left . implode($right.'.'.$left, $a) . $right . $alias;
+  }
+
+  /**
+   * Create a comma separated field list
+   * @param bool $addAlias Flag to add an alias
+   * @return string
+   * @internal
+   */
+  protected function _build_field( $addAlias=false )
+  {
+    $a = array();
+    $asAlias = $this->_supportsAsAlias ?
+      ' as ' :
+      ' ';
+    $counter = count($this->_field);
+    for ( $i=0 ; $i < $counter ; $i++ ) {
+      $field = $this->_field[$i];
+
+      // Keep the name when referring to a table
+      if ( $addAlias && $field !== '*' && strpos($field, '(') === false ) {
+        $split = preg_split( '/ as (?![^\(]*\))/i', $field );
+
+        if ( count($split) > 1 ) {
+          $a[] = $this->_protect_identifiers( $split[0], true ).$asAlias.
+            $this->_field_quote. $split[1] .$this->_field_quote;
+        }
+        else {
+          $a[] = $this->_protect_identifiers( $field, true ).$asAlias.
+            $this->_field_quote. $field .$this->_field_quote;
+        }
+      }
+      else if ( $addAlias && strpos($field, '(') !== false && ! strpos($field, ' as ') ) {
+        $a[] = $this->_protect_identifiers( $field, true ).$asAlias.
+          $this->_field_quote. $field .$this->_field_quote;
+      }
+      else {
+        $a[] = $this->_protect_identifiers( $field, true );
+      }
+    }
+
+    return ' '.implode(', ', $a).' ';
+  }
 
 	// SQL Server 2012+ only
 	protected function _build_limit()
